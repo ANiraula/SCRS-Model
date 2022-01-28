@@ -17,6 +17,8 @@ Historical_Data <- read_excel(FileName, sheet = 'Historical Data')
 Scenario_Data <- read_excel(FileName, sheet = 'Inv_Returns')
 BenefitPayments <- read_excel(FileName, sheet = 'Benefit Payments')
 PayrollData <- read_excel(FileName, sheet = 'Payroll')
+
+#View(Scenario_Data)
 #
 ##################################################################################################################################################################
 #
@@ -100,6 +102,9 @@ AmoYearsInput_NewHires <- read_excel(FileName, sheet = 'Amortization_NewHires')
 #
 ##################################################################################################################################################################
 #
+
+DC_NewHires <- 0.75##Added
+
 for(i in StartIndex:length(FYE)){
   #Payroll
   TotalPayroll[i] <- TotalPayroll[i-1]*(1 + Payroll_growth)
@@ -115,7 +120,8 @@ for(i in StartIndex:length(FYE)){
   Tier3Payroll[i] <- DBLegacyPayroll[i] - Tier2Payroll[i]
   RehPayroll[i] <- (RehPayroll[i-1] + TERIPayroll[i-1])*(1 + Payroll_growth) - TERIPayroll[i]
   
-  ProjectedPayroll[i] <- ProjectedPayroll[i-1]*(1 + Payroll_ratio)
+  ##Replacing  ProjectedPayroll[i-1] w/ (AllCurrentHires[i]-ORPCurrentPayroll[i])
+  ProjectedPayroll[i] <- (AllCurrentHires[i]-ORPCurrentPayroll[i])*(1 + Payroll_ratio)
   ProjectedTier23Payroll[i] <- (Tier2Payroll[i] + Tier3Payroll[i])*(1 + Payroll_ratio)
   ProjectedTier4Payroll[i] <-  AllNewHires[i]*(1 + Payroll_ratio)
   
@@ -161,7 +167,7 @@ RunModel <- function(Analysis_Type = AnalysisType,
                      CostSharingNC = CostSharing_NC,
                      CostSharingAmo = CostSharing_Amo,
                      CostSharing_Pct = CostSharingPct,
-                     ORPOffsetDBNC = ORPOffset_DBNC){
+                     ORPOffsetDBAmo = ORPOffset_DBAmo){
   #Default is statutory, change to ADC amo policy if need be
   if(ERPolicyCurrentHires == 'ADC'){
     AmoYearsInput_CurrentHires[,2] <- 20
@@ -264,6 +270,10 @@ RunModel <- function(Analysis_Type = AnalysisType,
       ER_Amo_ADC_NewHires[i] <- max(-ER_NC_CurrentHires[i]-ER_NC_NewHires[i]-ER_Amo_CurrentHires[i],AmoRate_NewHires[i-2]*AllNewHires[i]-EE_Amo_NewHires[i])
     }
     
+    ##Adding
+    ROA_MVA[3] <- 0.286
+    Scenario_Data[3,] <- 0.286
+    
     #Cash Flows and Solvency Contribution
     Cashflows <- BenPayments_CurrentHires[i] + BenPayments_NewHires[i] + Refunds_CurrentHires[i] +  Refunds_NewHires[i] + 
       AdminExp_CurrentHires[i] + AdminExp_NewHires[i] + EE_NC_CurrentHires[i] + EE_NC_NewHires[i] +
@@ -280,6 +290,7 @@ RunModel <- function(Analysis_Type = AnalysisType,
     } else if(Analysis_Type == 'Deterministic'){
       ROA_MVA[i] <- as.double(Scenario_Data[i,ScenarioIndex]) 
     }
+    
     
     #Net CF, Expected MVA, Solvency Contribution
     NetCF_CurrentHires[i] <- BenPayments_CurrentHires[i] + Refunds_CurrentHires[i] +  AdminExp_CurrentHires[i] +
@@ -415,6 +426,7 @@ RunModel <- function(Analysis_Type = AnalysisType,
       EmployeeNC_NewHires[i] <- EmployeeNC_CurrentHires[i]
     }
     
+    EmployeeNC_CurrentHires[i] <- 0.09##Added
     EmployerNC_CurrentHires[i] <- NC_CurrentHires[i] - EmployeeNC_CurrentHires[i]
     EmployerNC_NewHires[i] <- NC_NewHires[i] - EmployeeNC_NewHires[i]
     
@@ -422,7 +434,8 @@ RunModel <- function(Analysis_Type = AnalysisType,
     ER_AmoRate_NewHires[i] <- TotalContPost[i] - EmployerNC_NewHires[i]
     ER_AmoRate_Rehire[i] <- TotalContPost[i]
     
-    if(ORPOffsetDBNC == 'Yes'){
+    ##Switching to "No"
+    if(ORPOffsetDBAmo == 'No'){
       ER_AmoRate_ORP[i] <- TotalContPost[i] - EmployerNC_CurrentHires[i]
     } else {
       ER_AmoRate_ORP[i] <- TotalContPost[i] - ORPOffset
@@ -449,11 +462,31 @@ Scenario_ER_InflAdj <- as.data.frame(FYE)
 Scenario_Total_ER <- as.data.frame(FYE)
 Scenario_AllIn_ER <- as.data.frame(FYE)
 
-Scenarios <- c('Assumption','Model','Recession','Recurring Recession')
+
+Scenarios <- c('Assumption','6% Constant','Recession','Recurring Recession')
+
+############ RunModel ##############
+x <- RunModel(Scen_Type = Scenarios[1],
+              ERPolicyCurrentHires = 'Statutory Rate', 
+              ERPolicyNewHires = 'Statutory Rate',
+              ADEC_Trigger = 'Yes',
+              CostSharingNC = 'No',
+              CostSharingAmo = 'No',
+              ORPOffsetDBAmo = 'Yes')
+
+#write_csv(x, "SCRS_FModel_Outputs.csv")
+View(x %>% select(Output, ER_Percentage, FR_AVA, UAL_AVA, AVA, AccrLiabNewDR_Total, MVA_NewHires, MVA_CurrentHires,
+                  ER_Amo_ORP_CurrentHires,ER_Amo_ORP_NewHires, ProjectedPayroll, EE_NC_CurrentHires))
+#########
+
 for (i in 1:length(Scenarios)){
-  NewData <- RunModel(ERPolicyCurrentHires = 'ADC', 
-                      ERPolicyNewHires = 'ADC', 
-                      Scen_Type = Scenarios[i])
+  NewData <- RunModel(Scen_Type = Scenarios[i],
+                      ERPolicyCurrentHires = 'Statutory Rate', 
+                      ERPolicyNewHires = 'Statutory Rate',
+                      ADEC_Trigger = 'Yes',
+                      CostSharingNC = 'No',
+                      CostSharingAmo = 'No',
+                      ORPOffsetDBAmo = 'Yes')
   
   Scenario_Returns <- cbind(Scenario_Returns,NewData$ROA_MVA)
   Scenario_UAL <- cbind(Scenario_UAL,NewData$UAL_MVA_InflAdj)
